@@ -21,5 +21,20 @@
   "allowAllHttpHeaderAccess": true,
   "allowUrls": [
     ".blueletterbible.org"
+  ],
+  "settings": [
+    {
+			"variable": "videoPages",
+			"name": "Video Pager",
+			"description": "Video information for the page results",
+			"type": "Header"
+		},
+    {
+			"variable": "accurateDuration",
+			"name": "Accurate Duration",
+			"description": "Use audio clip duration for chapters, very slow and not recommended",
+			"type": "Boolean",
+			"default": "false"
+    }
   ]
 }

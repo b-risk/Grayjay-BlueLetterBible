@@ -132,7 +132,7 @@ source.getSearchCapabilities = function () {
 source.search = function (query, type, order, filters, continuationToken) {
     var parsed = parseSearchQuery(query);
 
-    if (parsed && parsed.book) {
+    if (parsed && (parsed.book || parsed.chapter)) {
         var transId = parsed.transId || translations[0].id;
         return getAllChaptersPager(transId, continuationToken, query);
     }
@@ -156,10 +156,9 @@ source.searchChannelContents = function (url, query, type, order, filters, conti
 
 source.searchChannels = function (query) {
     var lower = query.toLowerCase();
-    var showAll = lower.indexOf('blue letter bible') !== -1;
     var results = translations
         .filter(function (t) {
-            return showAll || t.name.toLowerCase().indexOf(lower) !== -1;
+            return ('Blue Letter Bible ' + t.name + ' ' + t.language).toLowerCase().indexOf(lower) !== -1;
         })
         .map(function (t) {
             return new PlatformChannel({
@@ -224,6 +223,44 @@ source.isContentDetailsUrl = function (stringUrl) {
     }
 }
 
+function getAudioStreamDuration(client, streamUrl) {
+    try {
+        var rangeResponse = client.GET(streamUrl, { Range: 'bytes=0-3' });
+
+        if (!rangeResponse.isOk || rangeResponse.body.length < 4) return null;
+
+        var contentRange = rangeResponse.headers['Content-Range'] || rangeResponse.headers['content-range'] || null;
+        if (Array.isArray(contentRange)) contentRange = contentRange[0];
+        if (!contentRange) return null;
+
+        var rangeMatch = contentRange.match(/bytes\s+\d+-\d+\/(\d+)/);
+        if (!rangeMatch) return null;
+
+        var totalSize = parseInt(rangeMatch[1]);
+        if (!totalSize || totalSize < 4) return null;
+
+        var b1 = rangeResponse.body.charCodeAt(1);
+        var b2 = rangeResponse.body.charCodeAt(2);
+
+        var version = (b1 >> 3) & 3;
+        var bitrateIdx = (b2 >> 4) & 0x0F;
+
+        var bitrateTable;
+        if (version === 3) {
+            bitrateTable = [0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0];
+        } else {
+            bitrateTable = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0];
+        }
+
+        var bitrate = bitrateTable[bitrateIdx] || 0;
+        if (!bitrate) return null;
+
+        return Math.floor((totalSize * 8) / (bitrate * 1000));
+    } catch (e) {
+        return null;
+    }
+}
+
 source.getContentDetails = function (url) {
     var fullUrl = (url.indexOf('://') !== -1) ? url : platform.regular_url + url;
     var u = new URL(fullUrl);
@@ -277,9 +314,11 @@ source.getContentDetails = function (url) {
         streamUrl += '?CFID=' + encodeURIComponent(cfid) + '&CFTOKEN=' + encodeURIComponent(cftoken);
     }
 
+    var duration = getAudioStreamDuration(freshClient, streamUrl) || 300;
+
     var audioSrc = new AudioUrlSource({
         name: 'Audio (' + transName + ')',
-        duration: 300,
+        duration: duration,
         container: 'audio/mpeg',
         codec: 'mp3',
         url: streamUrl,
@@ -304,7 +343,7 @@ source.getContentDetails = function (url) {
         ),
         url: fullUrl,
         uploadDate: null,
-        duration: 300,
+        duration: duration,
         description: description,
         isLive: false,
         video: new UnMuxVideoSourceDescriptor([], [audioSrc]),
@@ -449,6 +488,8 @@ function parseSearchQuery(query) {
     var chapterMatch = lower.match(/\bchapter\s+(\d+)\b/i);
     if (chapterMatch) {
         result.chapter = parseInt(chapterMatch[1]);
+    } else if (/^\d+$/.test(lower)) {
+        result.chapter = parseInt(lower);
     }
 
     var sortedBooks = books.slice().sort(function (a, b) {
@@ -479,10 +520,38 @@ function parseSearchQuery(query) {
 function createChapterVideo(transId, transName, book, chapterNum) {
     var popUrl = platform.regular_url + '/audio_video/popPlayer.cfm?type=' + transId + '&b=' + book.num + '&c=' + chapterNum;
     var channelUrl = platform.regular_url + '/audio_video/popPlayer.cfm?type=' + transId;
+
+    var thumbnail = platform.banner;
+    var duration = null;
+
+    if (settings.accurateDuration) {
+        try {
+            var client = http.newClient(false);
+            var pageResponse = client.GET(popUrl, { Accept: 'text/html' });
+
+            if (pageResponse.isOk) {
+                var cfid = null, cftoken = null;
+                if (pageResponse.headers) {
+                    var extracted = extractCFIDCFTOKEN(pageResponse.headers);
+                    cfid = extracted.cfid;
+                    cftoken = extracted.cftoken;
+                }
+
+                var ts = new Date().getTime();
+                var streamUrl = platform.regular_url + '/audio_video/stream/mp3/bible/' + ts;
+                if (cfid && cftoken) {
+                    streamUrl += '?CFID=' + encodeURIComponent(cfid) + '&CFTOKEN=' + encodeURIComponent(cftoken);
+                }
+
+                duration = getAudioStreamDuration(client, streamUrl);
+            }
+        } catch (e) {}
+    }
+
     return new PlatformVideo({
         id: new PlatformID(platform.title + '-' + transId, book.name + ' Chapter ' + chapterNum, config.id),
         name: book.name + ' Chapter ' + chapterNum,
-        thumbnails: new Thumbnails([new Thumbnail(platform.banner, 0)]),
+        thumbnails: new Thumbnails([new Thumbnail(thumbnail, 0)]),
         author: new PlatformAuthorLink(
             getPlatformIDForTranslation(transId, transName),
             'Blue Letter Bible ' + transName,
@@ -490,7 +559,7 @@ function createChapterVideo(transId, transName, book, chapterNum) {
             platform.icon
         ),
         datetime: null,
-        duration: null,
+        duration: duration,
         viewCount: null,
         url: popUrl,
         shareUrl: popUrl,
@@ -574,18 +643,21 @@ function getAllChaptersPager(transId, continuationToken, query) {
     var parsed = query ? parseSearchQuery(query) : null;
     var lowerQuery = query ? query.toLowerCase() : '';
 
-    var allItems = [];
+    var videos = [];
     var totalIndex = 0;
 
     for (var b = 0; b < books.length; b++) {
         var book = books[b];
 
         var bookMatches = !query;
+        var parsedBookOnly = parsed && parsed.book && !parsed.chapter;
         if (query) {
             if (parsed && parsed.book) {
                 bookMatches = parsed.book.num === book.num;
+            } else if (parsed && parsed.chapter) {
+                bookMatches = parsed.chapter <= book.chapters;
             } else {
-                bookMatches = book.name.toLowerCase().indexOf(lowerQuery) !== -1;
+                bookMatches = true;
             }
         }
         if (!bookMatches) continue;
@@ -597,19 +669,16 @@ function getAllChaptersPager(transId, continuationToken, query) {
             }
         } else {
             for (var c = 1; c <= book.chapters; c++) {
-                chaptersToInclude.push(c);
+                if (!query || parsedBookOnly || (book.name + ' Chapter ' + c).toLowerCase().indexOf(lowerQuery) !== -1) {
+                    chaptersToInclude.push(c);
+                }
             }
         }
 
         for (var ci = 0; ci < chaptersToInclude.length; ci++) {
             var c = chaptersToInclude[ci];
             if (totalIndex >= startIndex && totalIndex < startIndex + pageSize) {
-                allItems.push({
-                    title: book.name + ' Chapter ' + c,
-                    bookNum: book.num,
-                    chapterNum: c,
-                    bookName: book.name
-                });
+                videos.push(createChapterVideo(transId, transName, book, c));
             }
             totalIndex++;
         }
@@ -617,10 +686,6 @@ function getAllChaptersPager(transId, continuationToken, query) {
 
     var nextStart = startIndex + pageSize;
     var hasMore = nextStart < totalIndex;
-
-    var videos = allItems.map(function (item) {
-        return createChapterVideo(transId, transName, getBook(item.bookNum), item.chapterNum);
-    });
 
     var nextToken = hasMore ? '' + nextStart : null;
     return new BLBChapterPager(videos, hasMore, { transId: transId, nextToken: nextToken, query: query });
