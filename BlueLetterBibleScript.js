@@ -2,8 +2,9 @@ const platform = {
     title: 'Blue Letter Bible',
     regular_url: 'https://www.blueletterbible.org',
     url: 'https://www.blueletterbible.org/',
-    icon: 'https://raw.githubusercontent.com/b-risk/Grayjay-BlueLetterBible/refs/heads/main/Imgs/BlueLetterBibleIcon.png',
-    banner: 'https://www.blueletterbible.org/assets/images/bible_images/audio_Bible.jpg',
+    icon: 'https://raw.githubusercontent.com/b-risk/Grayjay-BlueLetterBible/refs/heads/main/Imgs/channel-icon.png',
+    banner: 'https://raw.githubusercontent.com/b-risk/Grayjay-BlueLetterBible/refs/heads/main/Imgs/channel-banner.png',
+    cover_art: 'https://www.blueletterbible.org/assets/images/bible_images/audio_Bible.jpg',
     description: 'Listen to narrations of different Bible translations on Blue Letter Bible.'
 };
 
@@ -299,7 +300,7 @@ source.getContentDetails = function (url) {
     if (ogDescMatch) description = ogDescMatch[1];
 
     var ogImageMatch = videoResponse.body.match(OG_IMAGE_REGEX);
-    var thumbnail = '';
+    var thumbnail = platform.cover_art;
     if (ogImageMatch) {
         thumbnail = ogImageMatch[1];
         if (thumbnail.indexOf('://') === -1) {
@@ -521,7 +522,7 @@ function createChapterVideo(transId, transName, book, chapterNum) {
     var popUrl = platform.regular_url + '/audio_video/popPlayer.cfm?type=' + transId + '&b=' + book.num + '&c=' + chapterNum;
     var channelUrl = platform.regular_url + '/audio_video/popPlayer.cfm?type=' + transId;
 
-    var thumbnail = platform.banner;
+    var thumbnail = platform.cover_art;
     var duration = null;
 
     if (settings.accurateDuration) {
