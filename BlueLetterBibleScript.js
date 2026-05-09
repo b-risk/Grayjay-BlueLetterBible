@@ -2,8 +2,8 @@ const platform = {
     title: 'Blue Letter Bible',
     regular_url: 'https://www.blueletterbible.org',
     url: 'https://www.blueletterbible.org/',
-    icon: 'https://raw.githubusercontent.com/b-risk/Grayjay-BlueLetterBible/refs/heads/main/Imgs/channel-icon.png',
-    banner: 'https://raw.githubusercontent.com/b-risk/Grayjay-BlueLetterBible/refs/heads/main/Imgs/channel-banner.png',
+    icon: 'https://raw.githubusercontent.com/b-risk/Grayjay-BlueLetterBible/refs/heads/main/Imgs/channel-icon.jpg',
+    banner: 'https://raw.githubusercontent.com/b-risk/Grayjay-BlueLetterBible/refs/heads/main/Imgs/channel-banner.jpg',
     cover_art: 'https://www.blueletterbible.org/assets/images/bible_images/audio_Bible.jpg',
     description: 'Listen to narrations of different Bible translations on Blue Letter Bible.'
 };
