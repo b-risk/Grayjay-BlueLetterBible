@@ -88,17 +88,14 @@ const books = [
     { num: 66, name: 'Revelation', chapters: 22 }
 ];
 
-// Regex patterns for parsing HTML meta tags
 var OG_TITLE_REGEX = /<meta\s+property="og:title"\s+content="([^"]+)"/;
 var OG_DESCRIPTION_REGEX = /<meta\s+property="og:description"\s+content="([^"]+)"/;
 var OG_IMAGE_REGEX = /<meta\s+property="og:image"\s+content="([^"]+)"/;
 
-// Regex patterns for parsing ColdFusion session cookies from Set-Cookie headers
 var CFID_DIRECT_REGEX = /(?:^|,\s*)CFID=([^;,]+)/;
 var CFTOKEN_DIRECT_REGEX = /(?:^|,\s*)CFTOKEN=([^;,]+)/;
 var CFGLOBALS_REGEX = /(?:^|,\s*)CFGLOBALS=([^;,]+)/;
 
-// Regex patterns for extracting CFID/CFTOKEN from within the URL-encoded CFGLOBALS value
 var CFID_IN_CFGLOBALS = /(?:CFID%23%3D|cfid%3D)(\d+)/;
 var CFTOKEN_IN_CFGLOBALS = /(?:CFTOKEN%23%3D|cftoken%3D)([a-fA-F0-9%\-]+)/;
 
@@ -110,21 +107,14 @@ source.enable = function (conf, _settings) {
     settings = _settings;
 }
 
-// Home: lists all Bible translations as channels
 source.getHome = function () {
-    var channels = translations.map(function (t) {
-        return new PlatformChannel({
-            id: getPlatformIDForTranslation(t.id, t.name),
-            name: 'Blue Letter Bible ' + t.name,
-            thumbnail: platform.icon,
-            banner: platform.banner,
-            subscribers: null,
-            description: t.name + ' - ' + t.language,
-            url: platform.regular_url + '/audio_video/popPlayer.cfm?type=' + t.id,
-            links: {}
-        });
-    });
-    return new ChannelPager(channels, false);
+    var pageSize = 20;
+    var videos = [];
+    for (var i = 0; i < pageSize; i++) {
+        var rc = getRandomChapter();
+        videos.push(createChapterVideo(rc.transId, rc.transName, rc.book, rc.chapterNum));
+    }
+    return new RandomChapterPager(videos, true);
 }
 
 source.searchSuggestions = function (query) {
@@ -141,46 +131,13 @@ source.getSearchCapabilities = function () {
 
 source.search = function (query, type, order, filters, continuationToken) {
     var parsed = parseSearchQuery(query);
-    var lower = query.toLowerCase();
 
     if (parsed && parsed.book) {
         var transId = parsed.transId || translations[0].id;
         return getAllChaptersPager(transId, continuationToken, query);
     }
 
-    if (parsed && parsed.transId) {
-        var trans = getTranslation(parsed.transId);
-        var channel = new PlatformChannel({
-            id: getPlatformIDForTranslation(trans.id, trans.name),
-            name: 'Blue Letter Bible ' + trans.name,
-            thumbnail: platform.icon,
-            banner: platform.banner,
-            subscribers: null,
-            description: trans.name + ' - ' + trans.language,
-            url: platform.regular_url + '/audio_video/popPlayer.cfm?type=' + trans.id,
-            links: {}
-        });
-        return new ChannelPager([channel], false);
-    }
-
-    var showAll = lower.indexOf('blue letter bible') !== -1;
-    var results = translations
-        .filter(function (t) {
-            return showAll || t.name.toLowerCase().indexOf(lower) !== -1;
-        })
-        .map(function (t) {
-            return new PlatformChannel({
-                id: getPlatformIDForTranslation(t.id, t.name),
-                name: 'Blue Letter Bible ' + t.name,
-                thumbnail: platform.icon,
-                banner: platform.banner,
-                subscribers: null,
-                description: t.name + ' - ' + t.language,
-                url: platform.regular_url + '/audio_video/popPlayer.cfm?type=' + t.id,
-                links: {}
-            });
-        });
-    return new ChannelPager(results, false);
+    return new VideoPager([], false);
 }
 
 source.getSearchChannelContentsCapabilities = function () {
@@ -219,7 +176,6 @@ source.searchChannels = function (query) {
     return new ChannelPager(results, false);
 }
 
-// Checks if a URL points to a channel (translation list, not a specific chapter)
 source.isChannelUrl = function (url) {
     try {
         var u = new URL(url);
@@ -232,7 +188,6 @@ source.isChannelUrl = function (url) {
     }
 }
 
-// Returns channel metadata for a translation
 source.getChannel = function (url) {
     var transId = extractTranslationFromUrl(url);
     var trans = getTranslation(transId);
@@ -255,7 +210,6 @@ source.getChannelContents = function (url, type, order, filters, continuationTok
     return getAllChaptersPager(transId, continuationToken);
 }
 
-// Checks if a URL points to a specific chapter (has b=book&c=chapter params)
 source.isContentDetailsUrl = function (stringUrl) {
     try {
         var url = new URL(stringUrl);
@@ -270,56 +224,6 @@ source.isContentDetailsUrl = function (stringUrl) {
     }
 }
 
-// Extracts a cookie value by name from a Combine Set-Cookie header string
-function extractCookie(headers, name) {
-    if (!headers) return null;
-    var raw = headers['Set-Cookie'] || headers['set-cookie'] || null;
-    if (!raw) return null;
-    if (Array.isArray(raw)) raw = raw.join(',');
-    var pattern = new RegExp('(?:^|,\\s*)' + name + '=([^;,]+)');
-    var match = raw.match(pattern);
-    return match ? match[1] : null;
-}
-
-// Extracts CFID and CFTOKEN session identifiers from response headers.
-// The server may set these as direct cookies, or embed them inside the
-// URL-encoded CFGLOBALS cookie. This function tries direct cookies first,
-// then falls back to parsing the CFGLOBALS value.
-function extractCFIDCFTOKEN(headers) {
-    if (!headers) return { cfid: null, cftoken: null };
-    var raw = headers['Set-Cookie'] || headers['set-cookie'] || null;
-    if (!raw) return { cfid: null, cftoken: null };
-    if (Array.isArray(raw)) raw = raw.join(',');
-
-    var cfid = null, cftoken = null;
-
-    // Try direct CFID and CFTOKEN cookies
-    var cfidMatch = raw.match(CFID_DIRECT_REGEX);
-    if (cfidMatch) cfid = cfidMatch[1];
-    var cftokenMatch = raw.match(CFTOKEN_DIRECT_REGEX);
-    if (cftokenMatch) cftoken = cftokenMatch[1];
-
-    if (cfid && cftoken) return { cfid: cfid, cftoken: cftoken };
-
-    // Fallback: parse CFGLOBALS cookie which contains URL-encoded session data
-    var cfgMatch = raw.match(CFGLOBALS_REGEX);
-    if (cfgMatch) {
-        var enc = cfgMatch[1];
-        var cfidG = enc.match(CFID_IN_CFGLOBALS);
-        var cftokenG = enc.match(CFTOKEN_IN_CFGLOBALS);
-        if (cfidG && !cfid) cfid = cfidG[1];
-        if (cftokenG && !cftoken) cftoken = cftokenG[1].replace(/%2D/g, '-');
-    }
-
-    return { cfid: cfid, cftoken: cftoken };
-}
-
-// Fetches audio details for a specific chapter.
-// BLB uses ColdFusion session cookies (CFID/CFTOKEN) tied to chapter metadata.
-// The popPlayer page primes the server session with chapter info from its URL params.
-// We extract CFID/CFTOKEN from response headers and append them as URL parameters
-// on the stream URL, because Grayjay's media player doesn't share the script's
-// HTTP client cookie jar.
 source.getContentDetails = function (url) {
     var fullUrl = (url.indexOf('://') !== -1) ? url : platform.regular_url + url;
     var u = new URL(fullUrl);
@@ -338,7 +242,6 @@ source.getContentDetails = function (url) {
     var cfid = null;
     var cftoken = null;
 
-    // Use a fresh HTTP client so each chapter gets a new ColdFusion session
     var freshClient = http.newClient(false);
     var videoResponse = freshClient.GET(fullUrl, { Accept: 'text/html' });
 
@@ -346,14 +249,12 @@ source.getContentDetails = function (url) {
         throw new ScriptException('Failed to fetch video ' + fullUrl + ' with code [' + videoResponse.code + ']');
     }
 
-    // Extract CFID/CFTOKEN from the Set-Cookie response headers
     if (videoResponse.headers) {
         var extracted = extractCFIDCFTOKEN(videoResponse.headers);
         cfid = extracted.cfid;
         cftoken = extracted.cftoken;
     }
 
-    // Parse Open Graph meta tags from the popPlayer page HTML
     var ogTitleMatch = videoResponse.body.match(OG_TITLE_REGEX);
     if (ogTitleMatch) title = ogTitleMatch[1];
 
@@ -369,9 +270,6 @@ source.getContentDetails = function (url) {
         }
     }
 
-    // Build the stream URL with session identifiers encoded as query parameters.
-    // The popPlayer page already primed the server session with the correct
-    // book/chapter, so the stream endpoint just needs to know which session to use.
     var ts = new Date().getTime();
     var streamUrl = platform.regular_url + '/audio_video/stream/mp3/bible/' + ts;
 
@@ -392,6 +290,8 @@ source.getContentDetails = function (url) {
         }
     });
 
+    var channelUrl = platform.regular_url + '/audio_video/popPlayer.cfm?type=' + transId;
+
     return new PlatformVideoDetails({
         id: new PlatformID(platform.title, title, config.id),
         name: title,
@@ -399,7 +299,7 @@ source.getContentDetails = function (url) {
         author: new PlatformAuthorLink(
             getPlatformIDForTranslation(transId, transName),
             'Blue Letter Bible ' + transName,
-            platform.url,
+            channelUrl,
             platform.icon
         ),
         url: fullUrl,
@@ -407,11 +307,99 @@ source.getContentDetails = function (url) {
         duration: 300,
         description: description,
         isLive: false,
-        video: new UnMuxVideoSourceDescriptor([], [audioSrc])
+        video: new UnMuxVideoSourceDescriptor([], [audioSrc]),
+        getContentRecommendations: function () {
+            return getNextChaptersPager(transId, bookNum, chapterNum);
+        }
     });
 }
 
-// Looks up a translation object by its ID (e.g. 'kjv_n')
+source.getChannelPlaylists = function (url) {
+    var transId = extractTranslationFromUrl(url);
+    if (!transId) return new PlaylistPager([], false);
+
+    var trans = getTranslation(transId);
+    var transName = trans ? trans.name : transId;
+    var channelName = 'Blue Letter Bible ' + transName;
+
+    var playlists = books.map(function (book) {
+        var playlistUrl = platform.regular_url + '/audio_video/popPlayer.cfm?type=' + transId + '&b=' + book.num;
+        return new PlatformPlaylist({
+            id: new PlatformID(platform.title + '-' + transId, book.name, config.id),
+            name: book.name,
+            thumbnail: platform.banner,
+            videoCount: book.chapters,
+            url: playlistUrl,
+            author: new PlatformAuthorLink(
+                getPlatformIDForTranslation(transId, transName),
+                channelName,
+                platform.url,
+                platform.icon
+            )
+        });
+    });
+
+    return new PlaylistPager(playlists, false);
+}
+
+source.isPlaylistUrl = function (url) {
+    try {
+        var u = new URL(url);
+        var b = u.searchParams.get('b');
+        var c = u.searchParams.get('c');
+        return u.hostname === 'www.blueletterbible.org' &&
+            u.pathname.indexOf('popPlayer.cfm') !== -1 &&
+            !!u.searchParams.get('type') &&
+            !!b && !c;
+    } catch {
+        return false;
+    }
+}
+
+source.getPlaylist = function (url) {
+    try {
+        var u = new URL(url);
+        var transId = u.searchParams.get('type');
+        var bookNum = parseInt(u.searchParams.get('b'));
+
+        var trans = getTranslation(transId);
+        var book = getBook(bookNum);
+        if (!trans || !book) return null;
+
+        var transName = trans ? trans.name : transId;
+        var channelName = 'Blue Letter Bible ' + transName;
+
+        var videos = [];
+        for (var c = 1; c <= book.chapters; c++) {
+            videos.push(createChapterVideo(transId, transName, book, c));
+        }
+
+        return new PlatformPlaylistDetails({
+            id: new PlatformID(platform.title + '-' + transId, book.name, config.id),
+            name: book.name,
+            thumbnails: new Thumbnails([new Thumbnail(platform.banner, 0)]),
+            url: url,
+            thumbnail: platform.banner,
+            author: new PlatformAuthorLink(
+                getPlatformIDForTranslation(transId, transName),
+                channelName,
+                platform.url,
+                platform.icon
+            ),
+            contents: new PlaylistChapterPager(videos, false)
+        });
+    } catch {
+        return null;
+    }
+}
+
+function getRandomChapter() {
+    var trans = translations[Math.floor(Math.random() * translations.length)];
+    var book = books[Math.floor(Math.random() * books.length)];
+    var chapter = Math.floor(Math.random() * book.chapters) + 1;
+    return { transId: trans.id, transName: trans.name, book: book, chapterNum: chapter };
+}
+
 function getTranslation(id) {
     if (!id) return null;
     var lower = id.toLowerCase();
@@ -421,7 +409,6 @@ function getTranslation(id) {
     return null;
 }
 
-// Looks up a book object by its number (1-66)
 function getBook(num) {
     for (var i = 0; i < books.length; i++) {
         if (books[i].num === num) return books[i];
@@ -429,7 +416,6 @@ function getBook(num) {
     return null;
 }
 
-// Extracts the translation type from a popPlayer URL's query string
 function extractTranslationFromUrl(url) {
     try {
         var u = new URL(url);
@@ -443,7 +429,6 @@ function getPlatformIDForTranslation(transId, transName) {
     return new PlatformID(platform.title, transName, config.id);
 }
 
-// Parses a search query to extract book name, chapter number, and translation.
 function parseSearchQuery(query) {
     var lower = query.toLowerCase().trim();
     var result = { transId: null, book: null, chapter: null };
@@ -491,9 +476,9 @@ function parseSearchQuery(query) {
     return result;
 }
 
-// Creates a PlatformVideo for a single Bible chapter
 function createChapterVideo(transId, transName, book, chapterNum) {
     var popUrl = platform.regular_url + '/audio_video/popPlayer.cfm?type=' + transId + '&b=' + book.num + '&c=' + chapterNum;
+    var channelUrl = platform.regular_url + '/audio_video/popPlayer.cfm?type=' + transId;
     return new PlatformVideo({
         id: new PlatformID(platform.title + '-' + transId, book.name + ' Chapter ' + chapterNum, config.id),
         name: book.name + ' Chapter ' + chapterNum,
@@ -501,7 +486,7 @@ function createChapterVideo(transId, transName, book, chapterNum) {
         author: new PlatformAuthorLink(
             getPlatformIDForTranslation(transId, transName),
             'Blue Letter Bible ' + transName,
-            platform.url,
+            channelUrl,
             platform.icon
         ),
         datetime: null,
@@ -513,9 +498,72 @@ function createChapterVideo(transId, transName, book, chapterNum) {
     });
 }
 
-// Generates a paginated list of all chapters for a given translation.
-// Each chapter is returned as a PlatformVideo with the correct
-// channel name matching the parent translation channel.
+function getNextChaptersPager(transId, bookNum, chapterNum) {
+    var trans = getTranslation(transId);
+    var transName = trans ? trans.name : transId;
+    var maxResults = 20;
+
+    var videos = [];
+    var foundCurrent = false;
+
+    for (var b = 0; b < books.length; b++) {
+        if (videos.length >= maxResults) break;
+        var book = books[b];
+
+        if (book.num === bookNum) {
+            foundCurrent = true;
+            for (var c = chapterNum + 1; c <= book.chapters; c++) {
+                if (videos.length >= maxResults) break;
+                videos.push(createChapterVideo(transId, transName, book, c));
+            }
+        } else if (foundCurrent) {
+            for (var c = 1; c <= book.chapters; c++) {
+                if (videos.length >= maxResults) break;
+                videos.push(createChapterVideo(transId, transName, book, c));
+            }
+        }
+    }
+
+    return new VideoPager(videos, false);
+}
+
+function extractCookie(headers, name) {
+    if (!headers) return null;
+    var raw = headers['Set-Cookie'] || headers['set-cookie'] || null;
+    if (!raw) return null;
+    if (Array.isArray(raw)) raw = raw.join(',');
+    var pattern = new RegExp('(?:^|,\\s*)' + name + '=([^;,]+)');
+    var match = raw.match(pattern);
+    return match ? match[1] : null;
+}
+
+function extractCFIDCFTOKEN(headers) {
+    if (!headers) return { cfid: null, cftoken: null };
+    var raw = headers['Set-Cookie'] || headers['set-cookie'] || null;
+    if (!raw) return { cfid: null, cftoken: null };
+    if (Array.isArray(raw)) raw = raw.join(',');
+
+    var cfid = null, cftoken = null;
+
+    var cfidMatch = raw.match(CFID_DIRECT_REGEX);
+    if (cfidMatch) cfid = cfidMatch[1];
+    var cftokenMatch = raw.match(CFTOKEN_DIRECT_REGEX);
+    if (cftokenMatch) cftoken = cftokenMatch[1];
+
+    if (cfid && cftoken) return { cfid: cfid, cftoken: cftoken };
+
+    var cfgMatch = raw.match(CFGLOBALS_REGEX);
+    if (cfgMatch) {
+        var enc = cfgMatch[1];
+        var cfidG = enc.match(CFID_IN_CFGLOBALS);
+        var cftokenG = enc.match(CFTOKEN_IN_CFGLOBALS);
+        if (cfidG && !cfid) cfid = cfidG[1];
+        if (cftokenG && !cftoken) cftoken = cftokenG[1].replace(/%2D/g, '-');
+    }
+
+    return { cfid: cfid, cftoken: cftoken };
+}
+
 function getAllChaptersPager(transId, continuationToken, query) {
     var startIndex = continuationToken ? parseInt(continuationToken) : 0;
     var pageSize = 50;
@@ -578,91 +626,27 @@ function getAllChaptersPager(transId, continuationToken, query) {
     return new BLBChapterPager(videos, hasMore, { transId: transId, nextToken: nextToken, query: query });
 }
 
-// Returns all books of the Bible as playlists for a translation channel.
-source.getChannelPlaylists = function (url) {
-    var transId = extractTranslationFromUrl(url);
-    if (!transId) return new PlaylistPager([], false);
-
-    var trans = getTranslation(transId);
-    var transName = trans ? trans.name : transId;
-    var channelName = 'Blue Letter Bible ' + transName;
-
-    var playlists = books.map(function (book) {
-        var playlistUrl = platform.regular_url + '/audio_video/popPlayer.cfm?type=' + transId + '&b=' + book.num;
-        return new PlatformPlaylist({
-            id: new PlatformID(platform.title + '-' + transId, book.name, config.id),
-            name: book.name,
-            thumbnail: platform.banner,
-            videoCount: book.chapters,
-            url: playlistUrl,
-            author: new PlatformAuthorLink(
-                getPlatformIDForTranslation(transId, transName),
-                channelName,
-                platform.url,
-                platform.icon
-            )
-        });
-    });
-
-    return new PlaylistPager(playlists, false);
-}
-
-// Checks if a URL points to a playlist (book without chapter): ?type=kjv_n&b=1
-source.isPlaylistUrl = function (url) {
-    try {
-        var u = new URL(url);
-        var b = u.searchParams.get('b');
-        var c = u.searchParams.get('c');
-        return u.hostname === 'www.blueletterbible.org' &&
-            u.pathname.indexOf('popPlayer.cfm') !== -1 &&
-            !!u.searchParams.get('type') &&
-            !!b && !c;
-    } catch {
-        return false;
-    }
-}
-
-// Returns a book's chapters as playlist contents.
-source.getPlaylist = function (url) {
-    try {
-        var u = new URL(url);
-        var transId = u.searchParams.get('type');
-        var bookNum = parseInt(u.searchParams.get('b'));
-
-        var trans = getTranslation(transId);
-        var book = getBook(bookNum);
-        if (!trans || !book) return null;
-
-        var transName = trans ? trans.name : transId;
-        var channelName = 'Blue Letter Bible ' + transName;
-
-        var videos = [];
-        for (var c = 1; c <= book.chapters; c++) {
-            videos.push(createChapterVideo(transId, transName, book, c));
-        }
-
-        return new PlatformPlaylistDetails({
-            id: new PlatformID(platform.title + '-' + transId, book.name, config.id),
-            name: book.name,
-            thumbnails: new Thumbnails([new Thumbnail(platform.banner, 0)]),
-            url: url,
-            thumbnail: platform.banner,
-            author: new PlatformAuthorLink(
-                getPlatformIDForTranslation(transId, transName),
-                channelName,
-                platform.url,
-                platform.icon
-            ),
-            contents: new PlaylistChapterPager(videos, false)
-        });
-    } catch {
-        return null;
-    }
-}
-
 class PlaylistChapterPager extends VideoPager {
     constructor(results, hasMore) {
         super(results, hasMore);
+    }
+}
+
+class RandomChapterPager extends VideoPager {
+    constructor(results, hasMore) {
+        super(results, hasMore);
+    }
+
+    nextPage() {
+        var pageSize = 20;
+        var videos = [];
+        for (var i = 0; i < pageSize; i++) {
+            var rc = getRandomChapter();
+            videos.push(createChapterVideo(rc.transId, rc.transName, rc.book, rc.chapterNum));
+        }
+        this.results = videos;
+        this.hasMore = true;
+        return this;
     }
 }
 

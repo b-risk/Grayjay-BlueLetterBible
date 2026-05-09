@@ -1,3 +1,6 @@
+### <a name="notice"></a>Notice
+> This plugin currently requires `allowAllHttpHeaderAccess` to read the `Set-Cookie` response headers. It may be possible to work around this requirement in the future, any help is appreciated.
+
 ### Grayjay Blue Letter Bible
 This plugin adds support for audio narrations on the platform Blue Letter Bible, allowing you to use it in Grayjay.
 
@@ -12,11 +15,13 @@ grayjay://plugin/https://raw.githubusercontent.com/b-risk/Grayjay-BlueLetterBibl
 
 ### Features
 - [x] Chapters as individual videos
+- [x] Next chapters as video recommendations
 - [x] Translations (and narrative type) as individual channels
 - [x] Video searches
-- [x] Playlists support
-- [ ] Homepage results
+- [x] Books as individual channel Playlists
+- [x] Homepage results (randomized)
 - [ ] Sign plugin
+- [ ] Remove allowAllHttpHeaderAccess requirement, [see notice](#notice)
 
 
 ### Contributions
