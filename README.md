@@ -1,6 +1,8 @@
 ### <a name="notice"></a>Notice
 > This plugin currently requires `allowAllHttpHeaderAccess` to read the `Set-Cookie` response headers. It may be possible to work around this requirement in the future, any help is appreciated.
 
+> Video durations in video pages are disabled by default due to needing to calculate them manually for every audio source, there is a toggle to enable it but it's very slow and not recommended, mostly only necessary for playlist durations.
+
 ### Grayjay Blue Letter Bible
 This plugin adds support for audio narrations on the platform Blue Letter Bible, allowing you to use it in Grayjay.
 
