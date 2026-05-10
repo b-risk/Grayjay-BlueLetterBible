@@ -100,6 +100,19 @@ var CFGLOBALS_REGEX = /(?:^|,\s*)CFGLOBALS=([^;,]+)/;
 var CFID_IN_CFGLOBALS = /(?:CFID%23%3D|cfid%3D)(\d+)/;
 var CFTOKEN_IN_CFGLOBALS = /(?:CFTOKEN%23%3D|cftoken%3D)([a-fA-F0-9%\-]+)/;
 
+var PAGE_SIZE = 15;
+var KNOWN_BITRATES = {
+    'esv_n': 256,
+    'niv_n': 128,
+    'nav_n': 128,
+    'kjv_n': 32,
+    'nkjv_d': 32,
+    'nkjv_n': 32,
+    'nlt_d': 32,
+    'nasb_n': 32,
+    'rvr60_n': 32
+};
+
 var config = {};
 var settings = {};
 
@@ -109,7 +122,7 @@ source.enable = function (conf, _settings) {
 }
 
 source.getHome = function () {
-    var pageSize = 20;
+    var pageSize = PAGE_SIZE;
     var videos = [];
     for (var i = 0; i < pageSize; i++) {
         var rc = getRandomChapter();
@@ -224,7 +237,7 @@ source.isContentDetailsUrl = function (stringUrl) {
     }
 }
 
-function getAudioStreamDuration(client, streamUrl) {
+function getAudioStreamDuration(client, streamUrl, transId) {
     try {
         var rangeResponse = client.GET(streamUrl, { Range: 'bytes=0-3' });
 
@@ -238,25 +251,47 @@ function getAudioStreamDuration(client, streamUrl) {
         if (!rangeMatch) return null;
 
         var totalSize = parseInt(rangeMatch[1]);
-        if (!totalSize || totalSize < 4) return null;
+        if (!totalSize) return null;
 
+        var b0 = rangeResponse.body.charCodeAt(0);
         var b1 = rangeResponse.body.charCodeAt(1);
         var b2 = rangeResponse.body.charCodeAt(2);
 
-        var version = (b1 >> 3) & 3;
-        var bitrateIdx = (b2 >> 4) & 0x0F;
+        if (b0 === 0x49 && b1 === 0x44 && b2 === 0x33) {
+            // Try TLEN from ID3 tag
+            var id3SizeResp = client.GET(streamUrl, { Range: 'bytes=6-9' });
+            if (id3SizeResp.isOk && id3SizeResp.body.length >= 4) {
+                var id3BodySize = ((id3SizeResp.body.charCodeAt(0) & 0x7F) << 21) |
+                                  ((id3SizeResp.body.charCodeAt(1) & 0x7F) << 14) |
+                                  ((id3SizeResp.body.charCodeAt(2) & 0x7F) << 7) |
+                                  (id3SizeResp.body.charCodeAt(3) & 0x7F);
+                var id3End = 10 + id3BodySize - 1;
+                var id3BodyResp = client.GET(streamUrl, { Range: 'bytes=10-' + id3End });
+                if (id3BodyResp.isOk && id3BodyResp.body.length > 0) {
+                    var tlenPos = id3BodyResp.body.indexOf('TLEN');
+                    if (tlenPos !== -1 && tlenPos + 14 <= id3BodyResp.body.length) {
+                        var frameSize = (id3BodyResp.body.charCodeAt(tlenPos + 4) << 24) |
+                                        (id3BodyResp.body.charCodeAt(tlenPos + 5) << 16) |
+                                        (id3BodyResp.body.charCodeAt(tlenPos + 6) << 8) |
+                                        id3BodyResp.body.charCodeAt(tlenPos + 7);
+                        if (frameSize > 0 && frameSize < 100) {
+                            var dataStr = id3BodyResp.body.substring(tlenPos + 10, tlenPos + 10 + frameSize - 1);
+                            var tlenMs = parseInt(dataStr, 10);
+                            if (tlenMs > 0) return Math.floor(tlenMs / 1000);
+                        }
+                    }
+                }
+            }
 
-        var bitrateTable;
-        if (version === 3) {
-            bitrateTable = [0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0];
-        } else {
-            bitrateTable = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0];
+            // No TLEN - use per-translation known bitrate for ID3 files with mangled headers
+            var transBitrate = KNOWN_BITRATES[transId];
+            if (transBitrate) {
+                return Math.floor((totalSize * 8) / (transBitrate * 1000));
+            }
+            return null;
         }
 
-        var bitrate = bitrateTable[bitrateIdx] || 0;
-        if (!bitrate) return null;
-
-        return Math.floor((totalSize * 8) / (bitrate * 1000));
+        return Math.floor((totalSize * 8) / 32000);
     } catch (e) {
         return null;
     }
@@ -315,7 +350,7 @@ source.getContentDetails = function (url) {
         streamUrl += '?CFID=' + encodeURIComponent(cfid) + '&CFTOKEN=' + encodeURIComponent(cftoken);
     }
 
-    var duration = getAudioStreamDuration(freshClient, streamUrl) || 300;
+    var duration = getAudioStreamDuration(freshClient, streamUrl, transId) || 300;
 
     var audioSrc = new AudioUrlSource({
         name: 'Audio (' + transName + ')',
@@ -367,7 +402,7 @@ source.getChannelPlaylists = function (url) {
         return new PlatformPlaylist({
             id: new PlatformID(platform.title + '-' + transId, book.name, config.id),
             name: book.name,
-            thumbnail: platform.banner,
+            thumbnail: platform.cover_art,
             videoCount: book.chapters,
             url: playlistUrl,
             author: new PlatformAuthorLink(
@@ -417,9 +452,9 @@ source.getPlaylist = function (url) {
         return new PlatformPlaylistDetails({
             id: new PlatformID(platform.title + '-' + transId, book.name, config.id),
             name: book.name,
-            thumbnails: new Thumbnails([new Thumbnail(platform.banner, 0)]),
+            thumbnails: new Thumbnails([new Thumbnail(platform.cover_art, 0)]),
             url: url,
-            thumbnail: platform.banner,
+            thumbnail: platform.cover_art,
             author: new PlatformAuthorLink(
                 getPlatformIDForTranslation(transId, transName),
                 channelName,
@@ -544,7 +579,7 @@ function createChapterVideo(transId, transName, book, chapterNum) {
                     streamUrl += '?CFID=' + encodeURIComponent(cfid) + '&CFTOKEN=' + encodeURIComponent(cftoken);
                 }
 
-                duration = getAudioStreamDuration(client, streamUrl);
+                duration = getAudioStreamDuration(client, streamUrl, transId);
             }
         } catch (e) {}
     }
@@ -636,7 +671,7 @@ function extractCFIDCFTOKEN(headers) {
 
 function getAllChaptersPager(transId, continuationToken, query) {
     var startIndex = continuationToken ? parseInt(continuationToken) : 0;
-    var pageSize = 50;
+    var pageSize = 25;
 
     var trans = getTranslation(transId);
     var transName = trans ? trans.name : transId;
@@ -704,7 +739,7 @@ class RandomChapterPager extends VideoPager {
     }
 
     nextPage() {
-        var pageSize = 20;
+        var pageSize = PAGE_SIZE;
         var videos = [];
         for (var i = 0; i < pageSize; i++) {
             var rc = getRandomChapter();
