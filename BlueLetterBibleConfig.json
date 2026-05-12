@@ -10,8 +10,8 @@
   "version": 1,
   "iconUrl": "./Imgs/BlueLetterBibleIcon.png",
   "id": "c72b8d6b-5e0d-4f83-9604-f9a307abf0e6",
-  "scriptSignature": "",
-  "scriptPublicKey": "",
+  "scriptSignature": "QJl4Wi4dBSn6M8R5M52VXysMUCGzfsfJDj+xLC0sm03Sss0jbhnB1iesb2wZtwP3LJclohOMeQNemmfoSwLFXU+9wXdS+JyQD0lIdpLidH/8uyGk56JGcNzjJWq+dDlW5otL54t2cQv4F5bUCxzxDcYa/rPOC0tQtGTE/pk883HFoTmwCYIcPAkS9teklxsrOVHjEpAN5fyHmzLt+CQI6dBxlMkG/Lhx9RO1KzpD3m7/CS/mV3hiP/x7cwcFs1t0m388UQT1sdmttV4Zr986iY2Fij8As2Ta9h4BcjZ9vdMGGfvYzxD+N7g5p57orXk6es9Ukt3luyzRg6Ew3fDMgQ==",
+  "scriptPublicKey": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtiOF/wTQDv9uNYZHVuCM4o1zIi38o1+5QN0FSNQx84OC0s55LSt/66EeUDXGrEnZUYTBzK1AdWiFCwMZskMr0UcUL/lwNZtlMR0/VFuaF/euyn7NqAZWo60XmETB507GyaSkHUo2AYJyojPS7RbSd/2yaU99Du+5iN0KVELwSgf5pKjuWVgtqcVii3ja1gvwffpQkcTP1IS6OIuzx9/9hDlPuhrHDNqO8duCwfeEJmnVsgkTfbM4kLuNxM9WsoRICwG1P9ySErGtc/0ArA3Dauhi42ok7I7WWy9Oq70l8cnmCzjgPqFl5QHNi3yPbvZmE+8+RcHWOzKldCW0vN+DpQIDAQAB",
   "packages": [
     "Http",
     "Utilities",
@@ -24,17 +24,17 @@
   ],
   "settings": [
     {
-			"variable": "videoPages",
-			"name": "Video Pager",
-			"description": "Video information for the page results",
-			"type": "Header"
-		},
+      "variable": "videoPages",
+      "name": "Video Pager",
+      "description": "Video information for the page results",
+      "type": "Header"
+    },
     {
-			"variable": "accurateDuration",
-			"name": "Accurate Duration",
-			"description": "Use audio clip duration for chapters, very slow and not recommended",
-			"type": "Boolean",
-			"default": "false"
+      "variable": "accurateDuration",
+      "name": "Accurate Duration",
+      "description": "Use audio clip duration for chapters, very slow and not recommended",
+      "type": "Boolean",
+      "default": "false"
     }
   ]
 }
