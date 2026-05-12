@@ -22,7 +22,7 @@ grayjay://plugin/https://raw.githubusercontent.com/b-risk/Grayjay-BlueLetterBibl
 - [x] Video searches
 - [x] Books as individual channel Playlists
 - [x] Homepage results (randomized)
-- [ ] Sign plugin
+- [x] Sign plugin
 - [ ] Remove allowAllHttpHeaderAccess requirement, [see notice](#notice)
 
 
